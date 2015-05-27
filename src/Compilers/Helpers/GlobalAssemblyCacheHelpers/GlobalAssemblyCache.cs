@@ -54,6 +54,53 @@ namespace Microsoft.CodeAnalysis
             void InstallAssembly();
         }
 
+        private class MonoAssemblyEnum : IAssemblyEnum
+        {
+            public int GetNextAssembly(out FusionAssemblyIdentity.IApplicationContext ppAppCtx, out FusionAssemblyIdentity.IAssemblyName ppName, uint dwFlags)
+            {
+                throw new NotImplementedException ();
+            }
+
+            public int Reset()
+            {
+                throw new NotImplementedException ();
+            }
+
+            public int Clone(out IAssemblyEnum ppEnum)
+            {
+                throw new NotImplementedException ();
+            }
+        }
+
+
+        private class MonoAssemblyCache : IAssemblyCache
+        {
+            public void UninstallAssembly()
+            {
+                throw new NotImplementedException ();
+            }
+
+           public  void QueryAssemblyInfo(uint dwFlags, [MarshalAs(UnmanagedType.LPWStr)] string pszAssemblyName, ref ASSEMBLY_INFO pAsmInfo)
+            {
+                throw new NotImplementedException ();
+            }
+           
+            public void CreateAssemblyCacheItem()
+            {
+                throw new NotImplementedException ();
+            }
+
+            public void CreateAssemblyScavenger()
+            {
+                throw new NotImplementedException ();
+            }
+
+            public void InstallAssembly()
+            {
+                throw new NotImplementedException ();
+            }
+        }
+
         [StructLayout(LayoutKind.Sequential)]
         private unsafe struct ASSEMBLY_INFO
         {
@@ -76,21 +123,80 @@ namespace Microsoft.CodeAnalysis
             ROOT_EX = 0x80,           // C:\Windows\Microsoft.NET\assembly
         }
 
-        [DllImport("clr", CharSet = CharSet.Auto, PreserveSig = true)]
-        private static extern int CreateAssemblyEnum(out IAssemblyEnum ppEnum, FusionAssemblyIdentity.IApplicationContext pAppCtx, FusionAssemblyIdentity.IAssemblyName pName, ASM_CACHE dwFlags, IntPtr pvReserved);
+        class Internal 
+        {
+            [DllImport("clr", CharSet = CharSet.Auto, PreserveSig = true)]
+            public static extern int CreateAssemblyEnum(out IAssemblyEnum ppEnum, FusionAssemblyIdentity.IApplicationContext pAppCtx, FusionAssemblyIdentity.IAssemblyName pName, ASM_CACHE dwFlags, IntPtr pvReserved);
 
-        [DllImport("clr", CharSet = CharSet.Auto, PreserveSig = true)]
-        private static unsafe extern int GetCachePath(ASM_CACHE id, byte* path, ref int length);
+            [DllImport("clr", CharSet = CharSet.Auto, PreserveSig = true)]
+            public static unsafe extern int GetCachePath(ASM_CACHE id, byte* path, ref int length);
 
-        [DllImport("clr", CharSet = CharSet.Auto, PreserveSig = false)]
-        private static extern void CreateAssemblyCache(out IAssemblyCache ppAsmCache, uint dwReserved);
+            [DllImport("clr", CharSet = CharSet.Auto, PreserveSig = false)]
+            public static extern void CreateAssemblyCache(out IAssemblyCache ppAsmCache, uint dwReserved);
+        }
 
+        private static int CreateAssemblyEnum(out IAssemblyEnum ppEnum, FusionAssemblyIdentity.IApplicationContext pAppCtx, FusionAssemblyIdentity.IAssemblyName pName, ASM_CACHE dwFlags, IntPtr pvReserved)
+        {
+            if (!isRunningOnMono)
+                return Internal.CreateAssemblyEnum(out ppEnum, pAppCtx, pName, dwFlags, pvReserved);
+
+            ppEnum = new MonoAssemblyEnum ();
+            throw new Exception ("CreateAssemblyEnum");
+
+            return 0;
+        }
+
+        private static unsafe int GetCachePath(ASM_CACHE id, byte* path, ref int length)
+        {
+            if (!isRunningOnMono)
+                return Internal.GetCachePath(id, path, ref length);
+
+            string file = typeof (Uri).Module.FullyQualifiedName;
+            if (!File.Exists (file))
+                return 1; // File not found;
+
+            file = Directory.GetParent(Directory.GetParent (
+                        Path.GetDirectoryName(file)
+                        ).FullName).FullName;
+
+            var bytes = System.Text.Encoding.Unicode.GetBytes(file);
+
+            length = bytes.Length;
+
+            if (path == null)
+                return ERROR_INSUFFICIENT_BUFFER;
+
+            for (var i = 0; i < length; i++)
+                path[i] = bytes[i];
+
+            Console.WriteLine ("GetCachePath {0} {1} {2}", file, file.Length, bytes.Length); 
+
+            return 0;
+        }
+
+        private static void CreateAssemblyCache(out IAssemblyCache ppAsmCache, uint dwReserved)
+        {
+            if (!isRunningOnMono) {
+                Internal.CreateAssemblyCache(out ppAsmCache, dwReserved);
+                return;
+            }
+throw new Exception ("CreateAssemblyCache");
+            ppAsmCache = monoAssemblyCache;
+        }
+ 
         private const int ERROR_INSUFFICIENT_BUFFER = unchecked((int)0x8007007A);
 
         public static readonly ImmutableArray<string> RootLocations;
 
+        private static bool isRunningOnMono;
+        private static MonoAssemblyCache monoAssemblyCache;
+
         static GlobalAssemblyCache()
         {
+            isRunningOnMono = Type.GetType ("Mono.Runtime") != null;
+            if (isRunningOnMono)
+                monoAssemblyCache = new MonoAssemblyCache ();
+
             RootLocations = ImmutableArray.Create<string>(
                 GetLocation(ASM_CACHE.ROOT),
                 GetLocation(ASM_CACHE.ROOT_EX));

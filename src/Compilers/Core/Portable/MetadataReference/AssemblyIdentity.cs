@@ -478,10 +478,24 @@ namespace Microsoft.CodeAnalysis
             var publicKeyBytes = name.GetPublicKey();
             ImmutableArray<byte> publicKey = (publicKeyBytes != null) ? ImmutableArray.Create(publicKeyBytes) : ImmutableArray<byte>.Empty;
 
+//#if MONO
+            /* 
+             * Mono implementation of AssemblyName.CultureName differs from .NET.
+             * In mono AssemblyName.CultureName returns "neutral" if AssemblyName.CultureInfo.LCID
+             * equals AssemblyName.CultureInfo.InvariantCulture.LCID, this happens regardless the value of
+             * AssemblyName.CultureInfo.Name.
+             * When AssemblyIdentity is created from an assembly, LCID is not considered thus we force the use
+             * of AssemblyName.CultureInfo.Name so all instances of AssemblyIdentity can be compared.
+             */
+            var cultureName = (name.CultureInfo == null)? null : name.CultureInfo.Name;
+//#else
+//            var cultureName = name.CultureName;
+//#endif
+
             return new AssemblyIdentity(
                 name.Name,
                 name.Version,
-                name.CultureName,
+                cultureName,
                 publicKey,
                 hasPublicKey: publicKey.Length > 0,
                 isRetargetable: (name.Flags & AssemblyNameFlags.Retargetable) != 0,
